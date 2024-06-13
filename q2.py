@@ -241,6 +241,158 @@ def k_beam(start_location, goal_location, k=3):
             beam = new_beam[:k]  # Take the best k paths for the next iteration
     return None  # No path found
 
+#genetic algoritem
+##########################
+class Individual:
+    def __init__(self, path, goal_location):
+        self.path = path
+        self.goal_location = goal_location
+        self.fitness = self.calculate_fitness()
+
+    def calculate_fitness(self):
+        # Fitness is defined as the path length plus the heuristic estimate
+        if not self.path or not is_valid_path(self.path, self.goal_location):
+            return float('inf')
+        heuristic_value = heuristic2(self.path[-1], self.goal_location)
+        path_length = len(self.path)
+        return path_length + heuristic_value
+
+def generate_initial_population(start_location, goal_location, population_size=10):
+    population = []
+    counter = 0
+    max_steps = 100  # You can adjust this to limit the length of random paths
+    
+    while len(population) < population_size:
+        if counter == 10000:
+            return None
+        path = generate_random_path(start_location, max_steps)
+        if path:
+            population.append(Individual(path, goal_location))
+        counter += 1
+    
+    return population
+
+def generate_random_path(start_node, max_steps=100):
+    path = [start_node]
+    current_location = start_node
+    visited = set(path)
+    for _ in range(max_steps):  # Arbitrary limit to avoid infinite loops
+        neighbors = [neighbor for neighbor in neighbors_dict.get(current_location, []) if neighbor not in visited]
+        if not neighbors:
+            break
+        current_location = random.choice(neighbors)
+        path.append(current_location)
+        visited.add(current_location)
+    return compress_path(path)  # Compress path to remove cycles
+
+def compress_path(path):
+    seen = {}
+    compressed = []
+    for index, node in enumerate(path):
+        if node in seen:
+            # If the node is seen, remove the cycle
+            cycle_start = seen[node]
+            compressed = compressed[:cycle_start]
+        seen[node] = len(compressed)
+        compressed.append(node)
+    return compressed
+
+def calculate_probabilities(population):
+    fitness_scores = [(1.0 / ind.fitness if ind.fitness != float('inf') else 0) for ind in population]
+    total_fitness = sum(fitness_scores)
+    probabilities = [score / total_fitness for score in fitness_scores] if total_fitness > 0 else [1 / len(population)] * len(population)
+    return probabilities
+
+def probabilistic_selection(population):
+    probabilities = calculate_probabilities(population)
+    selected_index = random.choices(range(len(population)), weights=probabilities, k=1)[0]
+    return population[selected_index]
+
+def selection(population, num_selected=5):
+    return [probabilistic_selection(population) for _ in range(num_selected)]
+
+def crossover(parent1, parent2):
+    min_len_path = min(len(parent1.path), len(parent2.path))
+    
+    # Ensure valid range for random selection of crossover point
+    if min_len_path > 1:
+        start = random.randint(1, min_len_path - 1)
+        child_path = parent1.path[:start]
+        next_node = parent2.path[start]
+        
+        # Avoid starting an already duplicated node
+        while next_node in child_path and len(parent2.path) > start + 1:
+            start += 1
+            next_node = parent2.path[start]
+        
+        child_path.extend(parent2.path[start:])
+        child_path = compress_path(child_path)
+        
+        if len(child_path) != len(set(child_path)):  # Check for duplication
+            return Individual(parent1.path, parent1.goal_location)  # Fallback to one of the parents
+        return Individual(child_path, parent1.goal_location)
+    
+    # Fall back to one parent if the path length is insufficient
+    return Individual(parent1.path, parent1.goal_location) if random.random() < 0.5 else Individual(parent2.path, parent1.goal_location)
+
+def mutate(individual, max_steps=100):
+    if len(individual.path) < 2:
+        return
+    mutation_point = random.randint(0, len(individual.path) - 2)
+    current_location = individual.path[mutation_point]
+    if current_location in neighbors_dict:
+        next_location = random.choice(neighbors_dict[current_location])
+        new_path = generate_random_path(next_location, max_steps)  # Use max_steps
+        if new_path:
+            new_segment = individual.path[:mutation_point + 1] + new_path  # Keep start, mutate rest
+            individual.path = compress_path(new_segment)
+            individual.fitness = individual.calculate_fitness()
+
+# Check if path has elements in the right order without any cycles and ends with the goal location
+def is_valid_path(path, goal_location):
+    if path[-1] != goal_location:
+        return False
+    for i in range(len(path) - 1):
+        if path[i + 1] not in neighbors_dict.get(path[i], []):
+            return False
+    return True
+
+def genetic(start_location, goal_location, population_size=10, generations=7000, mutation_rate=0.1):
+    population = generate_initial_population(start_location, goal_location, population_size)
+    first_actions_Genetic = None
+
+    if population == None:
+        return None,None
+
+    for generation in range(generations):
+        selected_individuals = selection(population, num_selected=5)
+        next_generation = selected_individuals[:]
+
+        while len(next_generation) < population_size:
+            parent1, parent2 = random.sample(selected_individuals, 2)
+            child = crossover(parent1, parent2)
+            
+            if random.random() < mutation_rate:
+                mutate(child, max_steps=100)  # Pass max_steps here
+            
+            next_generation.append(child)
+
+        population = next_generation
+
+
+        # Save the paths of the population after the first iteration
+        if generation == 0 and detail_output_choose==True:
+            first_actions_Genetic = [ind.path for ind in population]   
+
+
+        # Check for the best solution in the current population
+        best_individual = min(population, key=lambda x: x.fitness)
+        if is_valid_path(best_individual.path, goal_location):
+            return best_individual.path, first_actions_Genetic
+
+    return None,None
+###################################
+
 
 def shortest1Path_Many_T_Many(start_counties, goal_counties):
     shortest_path = None
@@ -270,6 +422,9 @@ def shortest1Path_Many_T_Many(start_counties, goal_counties):
                 
                 if search_method_choose == 4:
                     path = k_beam(Start_county_state, goal_county_state)
+
+                if search_method_choose ==5:
+                    path, trueGen  = genetic(Start_county_state, goal_county_state)   
     
 
                 if path and len(path) < shortest_path_length:
@@ -280,6 +435,15 @@ def shortest1Path_Many_T_Many(start_counties, goal_counties):
                                first_iteration_actions.pop(i)
                                break      
                         first_iteration_actions.append(first_actions) 
+
+
+                    if search_method_choose == 5 and detail_output_choose == True: ##for true in main problem 3
+                        for i in range (len(trueCaseGenetic)):
+                           if trueGen[0][0] == trueCaseGenetic[i][0][0]:
+                               trueCaseGenetic.pop(i)
+                               break      
+                        trueCaseGenetic.append(trueGen)
+                        
 
                     color = start_color   
                     shortest_path = path
@@ -445,23 +609,50 @@ def process_final_paths(final_Paths, best_locations_dict): #### For kbeam True p
     return new_paths
 
 
+def process_final_paths_Genetic(final_Paths, trueCaseGenetic): #### For genetic true case. second population
+    for i, row in enumerate(final_Paths):
+        if row[0] != "No path found":
+            location_key = row[0]
+            simplified_location_key = re.sub(r'\([^)]*\)', '', location_key).strip()
+            
+            # Find the corresponding index in trueCaseGenetic
+            for j in range(len(trueCaseGenetic)):
+                if simplified_location_key == trueCaseGenetic[j][0][0]:
+                    # Build the chain string for trueCaseGenetic[j]
+                    chains = []
+                    for k in range(10):  # There are always 10 lists within each trueCaseGenetic list
+                        chain = f"{k}: " + ", ".join(trueCaseGenetic[j][k])
+                        chains.append(chain)
+                    # Concatenate all chains into one string
+                    final_chain_string = " ".join(chains)
+                    # Append this chain string to the row
+                    final_Paths[i].insert(2, final_chain_string)
+                    break  # Stop searching once the correct list is found
 
+    return final_Paths
 
 
 
 def find_path(starting_locations, goal_locations, search_method, detail_output):
      global search_method_choose
      global detail_output_choose
+     
+          
      search_method_choose = search_method
      detail_output_choose = detail_output
+     
 
      if search_method ==3 and detail_output==True:
           global first_iteration_actions   # List to store the first iteration actions      
           first_iteration_actions = []
 
+     if search_method ==5 and detail_output==True:
+        global trueCaseGenetic # List to store the first iteration actions 
+        trueCaseGenetic = []
+
      final_Paths = Pach_Many_T_Many(starting_locations, goal_locations)
 
-     if search_method==1 and detail_output==False:
+     if search_method==1 and detail_output==False:   ##A*
          if final_Paths:
              transposed_paths = transpose_and_fill(final_Paths)
              for row in transposed_paths:
@@ -470,7 +661,7 @@ def find_path(starting_locations, goal_locations, search_method, detail_output):
          else:
             print("No path found")           
 
-     if search_method==1 and detail_output==True:
+     if search_method==1 and detail_output==True: ##A*
          if final_Paths:
             formatted_paths = format_paths_with_heuristics(final_Paths)
             for line in formatted_paths:
@@ -478,7 +669,7 @@ def find_path(starting_locations, goal_locations, search_method, detail_output):
          else:
            print("No path found")    
 
-     if search_method==2:
+     if search_method==2:  ##hill climbing
          if final_Paths:
              transposed_paths = transpose_and_fill(final_Paths)
              for row in transposed_paths:
@@ -487,7 +678,7 @@ def find_path(starting_locations, goal_locations, search_method, detail_output):
          else:
             print("No path found")                          
 
-     if search_method==3 and detail_output==False:
+     if search_method==3 and detail_output==False:  ##simulated annealing
          if final_Paths:
              transposed_paths = transpose_and_fill(final_Paths)
              for row in transposed_paths:
@@ -496,7 +687,7 @@ def find_path(starting_locations, goal_locations, search_method, detail_output):
          else:
             print("No path found")            
 
-     if search_method==3 and detail_output==True:   
+     if search_method==3 and detail_output==True:   ##simulated annealing
         if final_Paths:
             formatted_paths = format_paths_with_custom_data(final_Paths, first_iteration_actions)
             transposed_paths = transpose_and_fill(formatted_paths)
@@ -506,7 +697,7 @@ def find_path(starting_locations, goal_locations, search_method, detail_output):
         else:
             print("No path found")
 
-     if search_method==4 and detail_output==False:
+     if search_method==4 and detail_output==False: ##kbeam
          if final_Paths:
              transposed_paths = transpose_and_fill(final_Paths)
              for row in transposed_paths:
@@ -515,7 +706,7 @@ def find_path(starting_locations, goal_locations, search_method, detail_output):
          else:
             print("No path found")
 
-     if search_method==4 and detail_output==True:  
+     if search_method==4 and detail_output==True:  ##kbeam
          if final_Paths:
             best_locations = best_locations_for_starting_locations_k_beam(final_Paths)
             best_locations_dict = {list(location.keys())[0]: list(location.values())[0] for location in best_locations if isinstance(location, dict)}
@@ -526,6 +717,25 @@ def find_path(starting_locations, goal_locations, search_method, detail_output):
                 print(f"{{{formatted_row}}}")
          else:
             print("No path found") 
+
+     if search_method==5 and detail_output==False:  ##genetic
+         if final_Paths:
+             transposed_paths = transpose_and_fill(final_Paths)
+             for row in transposed_paths:
+                 formatted_row = " ; ".join(row)
+                 print(f"{{{formatted_row}}}")
+         else:
+            print("No path found")                
+
+     if search_method==5 and detail_output==True:  ##genetic
+         if final_Paths:
+             finalP = process_final_paths_Genetic(final_Paths, trueCaseGenetic) 
+             transposed_paths = transpose_and_fill(finalP)
+             for row in transposed_paths:
+                 formatted_row = " ; ".join(row)
+                 print(f"{{{formatted_row}}}")
+         else:
+            print("No path found")                         
            
 
 
@@ -534,35 +744,51 @@ def find_path(starting_locations, goal_locations, search_method, detail_output):
 
          
 
-# sum=0
+# totalsum=0
 # for g in range(1, 11):
 #     for i in range(1, 11):
-#         length = len(simulated_annealing("Johnston County, OK", "Lincoln Parish, LA"))
-#         print(length)
-#         sum += length
-#     print(sum)
+        # path =  genetic("Johnston County, OK", "Lincoln Parish, LA")
+#         if path != None:
+#             length = len(path)
+#             print(length)
+#             totalsum += length
+#     print(totalsum)
 #     print("")
-#     sum=0
+#     totalsum=0
+# path =  genetic("Johnston County, OK", "Lincoln Parish, LA")
+# path=genetic("Kingfisher County, OK", "Yauco Municipio, PR")
 
-# print(hill_climbing("Washington County, UT", "San Diego County, CA"))
+# def harel(path, neighbors_dict):
+#     for i in range(len(path) - 1):
+#         current_location = path[i]
+#         next_location = path[i + 1]
+#         # Check if the next location is a neighbor of the current location
+#         if next_location not in neighbors_dict.get(current_location, []):
+#             return False
+#     return True
+  
+# print(path)
+# print
+# print(harel(path, neighbors_dict))
 
-# start_locations = ["Blue, Washington County, UT", "Blue, Chicot County, AR", "Red, Fairfield County, CT", "Red, Otsego County, NY", "Blue, Moody County, SD"]
-# goal_locations = ["Blue, San Diego County, CA", "Blue, Bienville Parish, LA", "Red, Rensselaer County, NY", "Red, Columbia County, FL", "Blue, McDowell County, WV"]
+
+start_locations = ["Blue, Washington County, UT", "Blue, Chicot County, AR", "Red, Fairfield County, CT", "Red, Otsego County, NY", "Blue, Moody County, SD"]
+goal_locations = ["Blue, San Diego County, CA", "Blue, Bienville Parish, LA", "Red, Rensselaer County, NY", "Red, Columbia County, FL", "Blue, McDowell County, WV"]
 
 
-start_locations = ["Blue, Washington County, UT", "Blue, Chicot County, AR", "Red, Fairfield County, CT"]
-goal_locations = ["Blue, San Diego County, CA", "Blue, Bienville Parish, LA", "Red, Rensselaer County, NY"]
+# start_locations = ["Blue, Washington County, UT", "Blue, Chicot County, AR", "Red, Fairfield County, CT"]
+# goal_locations = ["Blue, San Diego County, CA", "Blue, Bienville Parish, LA", "Red, Rensselaer County, NY"]
 
 
-# print("")
-# print("")
-find_path(start_locations,goal_locations,1,True)
+print("")
+print("")
+find_path(start_locations,goal_locations,4,True)
 
-# print("")
-# print("")
-# find_path(start_locations,goal_locations,4,True)
+# # print("")
+# # print("")
+# # find_path(start_locations,goal_locations,4,True)
 
-# print("")
-# print("")
-# find_path(start_locations,goal_locations,4,True)
+# # print("")
+# # print("")
+# # find_path(start_locations,goal_locations,4,True)
 
