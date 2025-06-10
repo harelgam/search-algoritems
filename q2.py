@@ -11,7 +11,7 @@ import random
 column_names = ['countyname', 'neighborname']
 
 # Read the CSV file without headers, specifying the column names
-df = pd.read_csv(r'C:\שנה ג\יסודות בינה\תרגילי בית\תרגיל 1\adjacency.csv', names=column_names)
+df = pd.read_csv(r'C:adjacency.csv', names=column_names)
 
 # Initialize an empty dictionary to store the neighbors of each county
 neighbors_dict = {}
